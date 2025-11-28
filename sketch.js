@@ -349,64 +349,55 @@ function getReachableFromPlayer(excludeX = null, excludeY = null) {
 
 // Robust regeneration: reconnect forgotten cell to the player's component by opening exactly one wall
 function regenerateForgottenCell(x, y) {
-  // safety checks
-  if (x < 0 || x >= cols || y < 0 || y >= rows) return;
-  if (visited[y][x] === -1) return;                       // never visited - skip
-  if (moveCount - visited[y][x] <= forgetThreshold) return; // not forgotten yet - skip
+	const reachable = getReachableFromPlayer();
+	if (!reachable.has(`${x},${y}`)) {
+		// Find neighbors in reachable set
+		let neighbors = [];
+		const directions = [
+			{ dx: 1, dy: 0, dir: "east", opp: "west" },
+			{ dx: -1, dy: 0, dir: "west", opp: "east" },
+			{ dx: 0, dy: 1, dir: "south", opp: "north" },
+			{ dx: 0, dy: -1, dir: "north", opp: "south" }
+		];
 
-  // find which cells the player can reach *without* using the target cell
-  const reachable = getReachableFromPlayer(x, y);
+		for (let {dx, dy, dir, opp} of directions) {
+			let nx = x + dx;
+			let ny = y + dy;
+			if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+			if (reachable.has(`${nx},${ny}`)) neighbors.push({nx, ny, dir, opp});
+		}
 
-  // build neighbor list
-  const neighs = [];
-  if (y > 0)    neighs.push({ nx: x, ny: y - 1, dir: 'north', opp: 'south' });
-  if (y < rows - 1) neighs.push({ nx: x, ny: y + 1, dir: 'south', opp: 'north' });
-  if (x > 0)    neighs.push({ nx: x - 1, ny: y, dir: 'west', opp: 'east' });
-  if (x < cols - 1) neighs.push({ nx: x + 1, ny: y, dir: 'east', opp: 'west' });
+		if (neighbors.length > 0) {
+			let chosen = neighbors[floor(random(neighbors.length))];
+			maze[y][x][chosen.dir] = true;
+			maze[chosen.ny][chosen.nx][chosen.opp] = true;
+		}
+	}
 
-  // shuffle to add randomness
-  shuffle(neighs, true);
+	// Regenerate other walls randomly, following Hilbert index neighbor logic
+	let order = generateHilbertOrder(iters);
+	let index = Array(rows).fill().map(() => Array(cols).fill(0));
+	for (let i = 0; i < order.length; i++) {
+		let [ix, iy] = order[i];
+		index[iy][ix] = i;
+	}
 
-  // look for neighbors that are in the player's reachable set
-  let chosen = null;
-  for (const n of neighs) {
-    if (reachable.has(`${n.nx},${n.ny}`)) {
-      chosen = n;
-      break;
-    }
-  }
-
-  // If none of the immediate neighbors are reachable (edge case),
-  // fallback: pick a random neighbor (attach to main maze via that neighbor)
-  // This fallback is rare if player component covers large portion; but safe to include.
-  if (!chosen && neighs.length > 0) {
-    chosen = neighs[0]; // we already shuffled
-  }
-
-  // If there is a chosen neighbor, open only that wall; close the others to avoid creating loops.
-  if (chosen) {
-    const cell = maze[y][x];
-
-    // Close all walls first *without visually flashing all red*:
-    // Instead of instant redraw, update the logical walls only; the drawing step will render final state.
-    cell.north = false;
-    cell.south = false;
-    cell.east  = false;
-    cell.west  = false;
-
-    // open exactly the chosen wall
-    cell[chosen.dir] = true;
-    const neighbor = maze[chosen.ny][chosen.nx];
-    neighbor[chosen.opp] = true;
-
-    console.log(`Regenerated forgotten cell (${x},${y}) -> attached ${chosen.dir} to (${chosen.nx},${chosen.ny})`);
-  } else {
-    // nothing to do (isolated single cell with no neighbors? unlikely)
-    console.log(`Regenerate: no neighbor available for (${x},${y})`);
-  }
-
-  // do NOT modify visited[y][x] here — the draw() / move logic will set it when player actually sees/visits it
+	for (let {dx, dy, dir, opp} of [
+		{dx:1, dy:0, dir:"east", opp:"west"},
+		{dx:-1, dy:0, dir:"west", opp:"east"},
+		{dx:0, dy:1, dir:"south", opp:"north"},
+		{dx:0, dy:-1, dir:"north", opp:"south"}
+	]) {
+		let nx = x + dx;
+		let ny = y + dy;
+		if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+		if (!maze[y][x][dir] && index[ny][nx] > index[y][x]) {
+			maze[y][x][dir] = true;
+			maze[ny][nx][opp] = true;
+		}
+	}
 }
+
 
 
 // Setup
