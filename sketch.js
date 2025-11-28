@@ -430,7 +430,8 @@ function setup() {
 
   //Mark starting cell as visited
   moveCount = 0;
-  visited[player.y][player.c] = moveCount;
+  visited = Array(rows).fill().map(() => Array(cols).fill(-1));
+  visited[player.y][player.x] = 0;
 
   //Draw initial State
   redraw();
@@ -455,58 +456,61 @@ function keyReleased() {
 
 // Draw
 function draw() {
-  background(0);
   strokeWeight(2);
+  background(0);
 
-  //Make sure starting cell is visible even before moving
+  // Compute visible cells from the player's current position
   let visibleCells = computeVisibleCells(player.x, player.y, 5);
   visibleCells.add(`${player.x},${player.y}`);
 
+  // Draw the maze
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       let lastVisited = visited[y][x];
-
-      // Determine fill and regen
-      let isRegen = false;
-
-      // cell is visible now
-      if (visibleCells.has(`${x},${y}`)) {
-        // BEFORE updating visited[y][x] !
-        if (lastVisited !== -1 && moveCount - lastVisited === forgetThreshold + 1) {
-          regenerateForgottenCell(x, y);
-          isRegen = true;
-
-          // visual debug: set stroke color to indicate regeneration
-          stroke(255, 0, 0);
-        }
-
-        // Now mark it as visited this move (do this only once per move)
-        visited[y][x] = moveCount;
-      } else if (lastVisited !== -1 && moveCount - lastVisited <= forgetThreshold) {
-        fill(240 - 15 * (moveCount - lastVisited));
-        stroke(240 - 15 * (moveCount - lastVisited));
-      } else {
-        fill(0);
-        stroke(0);
-      }
-
       let cell = maze[y][x];
       let px = x * cellSize;
       let py = y * cellSize;
 
+      let isRegen = false;
+
+      // If cell is visible this frame
+      if (visibleCells.has(`${x},${y}`)) {
+        // BEFORE updating visited[y][x], check for forgotten regeneration
+        if (lastVisited !== -1 && moveCount - lastVisited > forgetThreshold) {
+          regenerateForgottenCell(x, y);
+          isRegen = true;
+        }
+
+        // Mark it as visited this move
+        visited[y][x] = moveCount;
+
+        // Fill visible cells with a base color
+        fill(255);
+      } else if (lastVisited !== -1 && moveCount - lastVisited <= forgetThreshold) {
+        //Faded memory: darker green
+        let fade = 255 - 15 * (moveCount - lastVisited);
+        fill(fade);
+      } else {
+        //Never seen: black
+        fill(0);
+      }
+
+      // Draw cell background
+      noStroke();
       rect(px, py, cellSize, cellSize);
 
-      // Draw walls
-      if (visibleCells.has(`${x},${y}`) || visited[y][x] !== -1) {
-        stroke(isRegen ? color(255, 0, 0) : 0); // red if regenerated
-        if (cell.north) line(px, py, px + cellSize, py);
-        if (cell.south) line(px, py + cellSize, px + cellSize, py + cellSize);
-        if (cell.west) line(px, py, px, py + cellSize);
-        if (cell.east) line(px + cellSize, py, px + cellSize, py + cellSize);
+      // Draw walls if visible or remembered
+      if (visibleCells.has(`${x},${y}`) || lastVisited !== -1) {
+        stroke(isRegen ? color(255, 0, 0) : 0);
+        if (!cell.north) line(px + 0.5, py + 0.5, px + cellSize + 0.5, py + 0.5);
+        if (!cell.south) line(px + 0.5, py + cellSize + 0.5, px + cellSize + 0.5, py + cellSize + 0.5);
+        if (!cell.west)  line(px + 0.5, py + 0.5, px + 0.5, py + cellSize + 0.5);
+        if (!cell.east)  line(px + cellSize + 0.5, py + 0.5, px + cellSize + 0.5, py + cellSize + 0.5);
       }
     }
   }
 
+  // Draw entities on top
   goal.draw(goal.x * cellSize, goal.y * cellSize, cellSize);
   minotaur.draw(minotaur.x * cellSize, minotaur.y * cellSize, cellSize);
   player.draw(player.x * cellSize, player.y * cellSize, cellSize);
