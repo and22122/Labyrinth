@@ -8,9 +8,37 @@ let cellSize;
 let maze;
 let visited;
 let moveCount = 0;
-let forgetThreshold = 16;
+let forgetThreshold = 2 ** 5;
+let fadeRate = 255 / forgetThreshold;
 
-let player, goal, minotaur;
+let player, minotaur, ariadne;
+
+let gameState = "playing"; // "playing", "won", "lost"
+
+
+
+// win screen
+function drawWinScreen() {
+  push();
+  background(255, 255, 255, 192);
+  fill(0);
+  textAlign(CENTER, CENTER);
+  textSize(32);
+  text("Congratulations!\nYou found Ariadne!", width/2, height/2);
+  pop();
+}
+
+// lose screen
+function drawLoseScreen() {
+  push();
+  background(255, 255, 255, 192);
+  fill(0);
+  textAlign(CENTER, CENTER);
+  textSize(32);
+  text("You lost - \nThe minotaur got you!", width/2, height/2);
+  pop();
+}
+
 
 // small helper to produce numeric id for union-find
 function idFor(x, y) { return y * cols + x; }
@@ -96,50 +124,162 @@ class Player extends Entity {
   draw(px, py, cellSize) { fill(0,255,0); rect(px+2, py+2, cellSize-4, cellSize-4); }
 }
 
-class Goal extends Entity {
-  draw(px, py, cellSize) { fill(255,255,0); rect(px+2, py+2, cellSize-4, cellSize-4); }
+class Ariadne extends Player {
+  constructor(x, y) {
+    super(x, y);
+  }
+
+  moveAI() {
+    const key = (x, y) => `${x},${y}`;
+    const candidates = [];
+    const c = maze[this.y][this.x];
+
+    // Build possible moves
+    if (c.north && this.y > 0) candidates.push([this.x, this.y - 1]);
+    if (c.south && this.y < rows - 1) candidates.push([this.x, this.y + 1]);
+    if (c.east && this.x < cols - 1) candidates.push([this.x + 1, this.y]);
+    if (c.west && this.x > 0) candidates.push([this.x - 1, this.y]);
+
+    if (candidates.length === 0) return; // trapped
+
+    let bestScore = -Infinity;
+    let bestMoves = [];
+
+    for (let [nx, ny] of candidates) {
+      // distance to player (closer is better)
+      let dist = Math.abs(nx - player.x) + Math.abs(ny - player.y);
+      let score = -dist; // closer = higher score
+
+      // dead-end penalty: fewer open neighbors = slightly lower score
+      let nc = maze[ny][nx];
+      let openDirs = 0;
+      if (nc.north) openDirs++;
+      if (nc.south) openDirs++;
+      if (nc.east) openDirs++;
+      if (nc.west) openDirs++;
+      score += openDirs * 0.2; // small bonus for not being a dead-end
+
+      // slight randomness to prevent looping
+      score += random(0, 0.1);
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMoves = [[nx, ny]];
+      } else if (score === bestScore) {
+        bestMoves.push([nx, ny]);
+      }
+    }
+
+    // pick one of the best moves randomly
+    let [tx, ty] = bestMoves[floor(random(bestMoves.length))];
+    this.x = tx;
+    this.y = ty;
+  }
+
+  draw(px, py, cellSize) {
+    fill(200, 100, 150);
+    ellipse(px + cellSize / 2, py + cellSize / 2, cellSize * 0.7);
+  }
 }
 
 class Minotaur extends Entity {
-  constructor(x,y){ super(x,y); this.dir = 3; this.chargeDistance = 3; }
-  canMoveDir(dir, x, y) { let c = maze[y][x]; return dir===0?c.north:dir===1?c.east:dir===2?c.south:c.west; }
-  step(dir){ if(dir===0) this.y--; else if(dir===1) this.x++; else if(dir===2) this.y++; else this.x--; }
-  seesPlayerInDirection(dir){
-    let cx=this.x, cy=this.y;
-    while(true){
-      if(cx<0||cx>=cols||cy<0||cy>=rows) break;
-      if(!this.canMoveDir(dir,cx,cy)) break;
-      if(dir===0) cy--; else if(dir===1) cx++; else if(dir===2) cy++; else cx--;
-      if(cx===player.x && cy===player.y) return true;
+  constructor(x, y) {
+    super(x, y);
+    this.dir = 3;
+    this.chargeDistance = 3;
+    this.noiseCounter = 0; // increases when player regenerates cells nearby
+  }
+
+  canMoveDir(dir, x, y) {
+    let c = maze[y][x];
+    return dir === 0 ? c.north : dir === 1 ? c.east : dir === 2 ? c.south : c.west;
+  }
+
+  step(dir) {
+    if (dir === 0) this.y--;
+    else if (dir === 1) this.x++;
+    else if (dir === 2) this.y++;
+    else this.x--;
+  }
+
+  seesPlayerInDirection(dir) {
+    let cx = this.x, cy = this.y;
+    while (true) {
+      if (cx < 0 || cx >= cols || cy < 0 || cy >= rows) break;
+      if (!this.canMoveDir(dir, cx, cy)) break;
+      if (dir === 0) cy--; else if (dir === 1) cx++; else if (dir === 2) cy++; else cx--;
+      if (cx === player.x && cy === player.y) return true;
     }
     return false;
   }
-  detectPlayerDirection(){ for(let d=0; d<4; d++) if(this.seesPlayerInDirection(d)) return d; return null; }
-  update(){ 
-    let spotted = this.detectPlayerDirection();
-    if(spotted!==null){
-      this.dir = spotted;
-      for(let i=0;i<this.chargeDistance;i++){
-        if(this.canMoveDir(this.dir,this.x,this.y)){ this.step(this.dir); if(this.x===player.x && this.y===player.y) break; }
-        else break;
-      }
-      return;
-    }
-    let forward=this.dir, left=(this.dir+3)%4, right=(this.dir+1)%4, backward=(this.dir+2)%4;
-    let canF=this.canMoveDir(forward,this.x,this.y), canL=this.canMoveDir(left,this.x,this.y),
-      canR=this.canMoveDir(right,this.x,this.y), canB=this.canMoveDir(backward,this.x,this.y);
-    let nonBackward=[canF,canL,canR].filter(v=>v).length;
-    if(nonBackward===1 && !canL && !canR){
-      if(this.seesPlayerInDirection(backward)){ this.dir=backward; this.step(this.dir); }
-      else if(canF){ this.dir=forward; this.step(this.dir); }
-      return;
-    }
-    let choices=[]; if(canF) choices.push(forward); if(canL) choices.push(left); if(canR) choices.push(right);
-    if(choices.length>0){ this.dir = choices[floor(random(choices.length))]; this.step(this.dir); return; }
-    if(canB){ this.dir = backward; this.step(this.dir); }
+
+  detectPlayerDirection() {
+    for (let d = 0; d < 4; d++)
+      if (this.seesPlayerInDirection(d)) return d;
+    return null;
   }
-  draw(px, py, cellSize){ fill(255,0,0); rect(px+2, py+2, cellSize-4, cellSize-4); }
+
+  // prefer directions that are not dead-ends
+  nonDeadEndDirs(dirs, x, y) {
+    return dirs.filter(d => {
+      let nx = x, ny = y;
+      if (d === 0) ny--; else if (d === 1) nx++; else if (d === 2) ny++; else nx--;
+      if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) return false;
+      let c = maze[ny][nx];
+      let openCount = 0;
+      if (c.north) openCount++;
+      if (c.east) openCount++;
+      if (c.south) openCount++;
+      if (c.west) openCount++;
+      return openCount > 1; // not a dead end
+    });
+  }
+
+  update() {
+    // noise awareness increment: if player regenerated nearby, minotaur is more alert
+    if (regeneratedThisFrame.has(`${this.x},${this.y}`)) this.noiseCounter += 1;
+    if (this.noiseCounter > 5) this.noiseCounter = 5;
+
+    let spotted = this.detectPlayerDirection();
+    if (spotted !== null || this.noiseCounter > 0) {
+      // charge only when sees player or noiseCounter > 0
+      if (spotted !== null) this.dir = spotted;
+      for (let i = 0; i < this.chargeDistance; i++) {
+        if (this.canMoveDir(this.dir, this.x, this.y)) {
+          this.step(this.dir);
+          if (this.x === player.x && this.y === player.y) break;
+        } else break;
+      }
+      this.noiseCounter = 0; // reset after moving toward player
+      return;
+    }
+
+    // random movement with dead-end awareness
+    let forward = this.dir, left = (this.dir + 3) % 4, right = (this.dir + 1) % 4, backward = (this.dir + 2) % 4;
+    let canF = this.canMoveDir(forward, this.x, this.y), canL = this.canMoveDir(left, this.x, this.y),
+      canR = this.canMoveDir(right, this.x, this.y), canB = this.canMoveDir(backward, this.x, this.y);
+
+    let choices = [];
+    if (canF) choices.push(forward);
+    if (canL) choices.push(left);
+    if (canR) choices.push(right);
+
+    // filter out choices that would lead to dead ends
+    choices = this.nonDeadEndDirs(choices, this.x, this.y);
+    if (choices.length === 0 && canB) choices.push(backward);
+
+    if (choices.length > 0) {
+      this.dir = choices[floor(random(choices.length))];
+      this.step(this.dir);
+    }
+  }
+
+  draw(px, py, cellSize) {
+    fill(255, 0, 0);
+    rect(px + 2, py + 2, cellSize - 4, cellSize - 4);
+  }
 }
+
 
 // --- Visibility / BFS ---
 function computeVisibleCells(px, py, radius) {
@@ -238,7 +378,7 @@ function rebuildMazePreserving(visibleCells) {
   }
 
 // shuffle candidate edges
-  candidates = shuffle(candidates, true);
+  candidates = shuffle(candidates);
 
 // union-find initialization
   let uf = makeUF(rows * cols);
@@ -310,20 +450,27 @@ function setup() {
   maze = generateMazeWithHilbert(rows, cols);
   visited = Array(rows).fill().map(() => Array(cols).fill(-1));
   player = new Player(0, 0);
-  goal = new Goal(cols - 1, rows - 1);
-  minotaur = new Minotaur(cols - 1, 0);
+  minotaur = new Minotaur(floor(cols / 2), floor(rows / 2));
+  ariadne = new Ariadne(cols - 1, rows - 1);
   visited[player.y][player.x] = 0;
   noLoop();
   redraw();
 }
 
 function keyReleased() {
+  
   let moved = false;
-  if (key === 'w' || keyCode === UP_ARROW) moved = player.move(0, -1);
-  else if (key === 's' || keyCode === DOWN_ARROW) moved = player.move(0, 1);
-  else if (key === 'a' || keyCode === LEFT_ARROW) moved = player.move(-1, 0);
-  else if (key === 'd' || keyCode === RIGHT_ARROW) moved = player.move(1, 0);
-  if (moved) { minotaur.update(); redraw(); }
+  if (gameState === "playing") {
+    if (key === 'w' || keyCode === UP_ARROW) moved = player.move(0, -1);
+    else if (key === 's' || keyCode === DOWN_ARROW) moved = player.move(0, 1);
+    else if (key === 'a' || keyCode === LEFT_ARROW) moved = player.move(-1, 0);
+    else if (key === 'd' || keyCode === RIGHT_ARROW) moved = player.move(1, 0);
+  }
+  if (moved) {
+    minotaur.update();
+    ariadne.moveAI(player.x, player.y);
+    redraw();
+  }
 }
 
 function draw() {
@@ -348,11 +495,11 @@ function draw() {
           isRegen = true;
         }
         visited[y][x] = moveCount;
-        fill(255); // visible = white
+        fill(255, 255, 192); // visible = white
       } else if (last !== -1 && moveCount - last <= forgetThreshold) {
-        fill(255 - 15 * (moveCount - last)); // faded memory
+        fill(255 - fadeRate * (moveCount - last), 255 - fadeRate * (moveCount - last), 192 - 0.75 * fadeRate * (moveCount - last)); // faded memory
       } else {
-        fill(225); // never seen
+        fill(224); // never seen
       }
 
       noStroke();
@@ -361,7 +508,9 @@ function draw() {
       if (visible.has(`${x},${y}`) || last !== -1) {
         // highlight if this specific cell triggered regeneration this frame
         let regenHighlight = regeneratedThisFrame.has(`${x},${y}`) || isRegen;
-        stroke(regenHighlight ? color(255, 0, 0) : 0);
+        //Below is just a debugging option.
+        //stroke(regenHighlight ? color(255, 0, 0) : 0);
+        stroke(0, 0, 0);
         if (!cell.north) line(px, py, px + cellSize, py);
         if (!cell.south) line(px, py + cellSize, px + cellSize, py + cellSize);
         if (!cell.west)  line(px, py, px, py + cellSize);
@@ -370,7 +519,23 @@ function draw() {
     }
   }
 
-  goal.draw(goal.x * cellSize, goal.y * cellSize, cellSize);
+  // gameState changes
+  if (player.x === minotaur.x && player.y === minotaur.y) {
+    gameState = "lost";
+  }
+  else if (player.x === ariadne.x && player.y === ariadne.y) {
+    gameState = "won";
+    noLoop();
+  }
+
+  ariadne.draw(ariadne.x * cellSize, ariadne.y * cellSize, cellSize);
   minotaur.draw(minotaur.x * cellSize, minotaur.y * cellSize, cellSize);
   player.draw(player.x * cellSize, player.y * cellSize, cellSize);
+
+  if (gameState === "won") {
+    drawWinScreen();
+  }
+  else if (gameState === "lost") {
+    drawLoseScreen();
+  }
 }
