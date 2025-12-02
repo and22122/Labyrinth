@@ -124,56 +124,80 @@ class Player extends Entity {
   draw(px, py, cellSize) { fill(0,255,0); rect(px+2, py+2, cellSize-4, cellSize-4); }
 }
 
+// --- Ariadne movement with personal exploration memory ---
 class Ariadne extends Player {
   constructor(x, y) {
     super(x, y);
+    // track her own visited cells
+    this.visitedAriadne = Array(rows).fill().map(() => Array(cols).fill(false));
+    this.visitedAriadne[y][x] = true;
   }
 
+  // AI movement
   moveAI() {
-    const key = (x, y) => `${x},${y}`;
-    const candidates = [];
-    const c = maze[this.y][this.x];
+    let options = [];
+    const dirs = [
+      { dx: 0, dy: -1, dir: "north" },
+      { dx: 1, dy: 0, dir: "east" },
+      { dx: 0, dy: 1, dir: "south" },
+      { dx: -1, dy: 0, dir: "west" }
+    ];
 
-    // Build possible moves
-    if (c.north && this.y > 0) candidates.push([this.x, this.y - 1]);
-    if (c.south && this.y < rows - 1) candidates.push([this.x, this.y + 1]);
-    if (c.east && this.x < cols - 1) candidates.push([this.x + 1, this.y]);
-    if (c.west && this.x > 0) candidates.push([this.x - 1, this.y]);
-
-    if (candidates.length === 0) return; // trapped
-
-    let bestScore = -Infinity;
-    let bestMoves = [];
-
-    for (let [nx, ny] of candidates) {
-      // distance to player (closer is better)
-      let dist = Math.abs(nx - player.x) + Math.abs(ny - player.y);
-      let score = -dist; // closer = higher score
-
-      // dead-end penalty: fewer open neighbors = slightly lower score
-      let nc = maze[ny][nx];
-      let openDirs = 0;
-      if (nc.north) openDirs++;
-      if (nc.south) openDirs++;
-      if (nc.east) openDirs++;
-      if (nc.west) openDirs++;
-      score += openDirs * 0.2; // small bonus for not being a dead-end
-
-      // slight randomness to prevent looping
-      score += random(0, 0.1);
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestMoves = [[nx, ny]];
-      } else if (score === bestScore) {
-        bestMoves.push([nx, ny]);
-      }
+    // prefer unexplored cells first
+    for (let {dx, dy, dir} of dirs) {
+      let nx = this.x + dx, ny = this.y + dy;
+      if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+      let cell = maze[this.y][this.x];
+      if ((dx === 1 && !cell.east) || (dx === -1 && !cell.west) ||
+          (dy === 1 && !cell.south) || (dy === -1 && !cell.north)) continue;
+      options.push({ nx, ny, unexplored: !this.visitedAriadne[ny][nx] });
     }
 
-    // pick one of the best moves randomly
-    let [tx, ty] = bestMoves[floor(random(bestMoves.length))];
-    this.x = tx;
-    this.y = ty;
+    if (options.length === 0) return; // stuck
+
+    // filter unexplored first
+    let unexplored = options.filter(o => o.unexplored);
+    let choice = unexplored.length > 0 ? random(unexplored) : random(options);
+
+    // determine movement burst length
+    let burst = choice.unexplored ? 1 : 2; // 1 step into new, 2 steps along explored
+
+    for (let i = 0; i < burst; i++) {
+      // attempt to move
+      let moved = this.move(choice.nx - this.x, choice.ny - this.y);
+      if (!moved) break;
+      this.visitedAriadne[this.y][this.x] = true;
+
+      // recompute options if still in explored area
+      if (i < burst - 1) {
+        options = [];
+        for (let {dx, dy, dir} of dirs) {
+          let nx = this.x + dx, ny = this.y + dy;
+          if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+          let cell = maze[this.y][this.x];
+          if ((dx === 1 && !cell.east) || (dx === -1 && !cell.west) ||
+              (dy === 1 && !cell.south) || (dy === -1 && !cell.north)) continue;
+          options.push({ nx, ny, unexplored: !this.visitedAriadne[ny][nx] });
+        }
+        if (options.length === 0) break;
+        unexplored = options.filter(o => o.unexplored);
+        choice = unexplored.length > 0 ? random(unexplored) : random(options);
+      }
+    }
+  }
+
+  move(dx, dy) {
+    let nx = this.x + dx;
+    let ny = this.y + dy;
+
+    if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) return false;
+    let cell = maze[this.y][this.x];
+    if ((dx === 1 && !cell.east) || (dx === -1 && !cell.west) ||
+        (dy === 1 && !cell.south) || (dy === -1 && !cell.north)) return false;
+
+    this.x = nx;
+    this.y = ny;
+    return true;
   }
 
   draw(px, py, cellSize) {
@@ -181,6 +205,7 @@ class Ariadne extends Player {
     ellipse(px + cellSize / 2, py + cellSize / 2, cellSize * 0.7);
   }
 }
+
 
 class Minotaur extends Entity {
   constructor(x, y) {
