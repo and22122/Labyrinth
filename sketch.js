@@ -1,6 +1,6 @@
 // p5.js sketch — rebuild-maze-with-preserved-connections approach
 
-let iters = 5;
+let iters = 4;
 let rows = 1 << iters;
 let cols = 1 << iters;
 let cellSize;
@@ -14,8 +14,14 @@ let fadeRate = 255 / forgetThreshold;
 let player, minotaur, ariadne;
 
 let gameState = "playing"; // "playing", "won", "lost"
+let imgs;
 
-
+function preload() {
+  imgs = [
+    loadImage('assets/Theseus.png'),
+    loadImage('assets/Minotaur.png'),
+    loadImage('assets/Ariadne.png')];
+}
 
 // win screen
 function drawWinScreen() {
@@ -104,7 +110,11 @@ function generateMazeWithHilbert(rowsArg, colsArg) {
 
 // --- Entities (unchanged behavior) ---
 class Entity {
-  constructor(x, y) { this.x = x; this.y = y; }
+  constructor(x, y, img) {
+    this.x = x;
+    this.y = y;
+    this.icon = img;
+  }
   draw(px, py, cellSize) { ellipse(px, py, cellSize, cellSize); }
 }
 
@@ -121,13 +131,15 @@ class Player extends Entity {
     moveCount++; visited[ny][nx] = moveCount;
     return true;
   }
-  draw(px, py, cellSize) { fill(0,255,0); rect(px+2, py+2, cellSize-4, cellSize-4); }
+  draw(px, py, cellSize) {
+    image(this.icon, px + 2, py + 2, cellSize - 4, cellSize - 4);
+  }
 }
 
 // --- Ariadne movement with personal exploration memory ---
 class Ariadne extends Player {
-  constructor(x, y) {
-    super(x, y);
+  constructor(x, y, img) {
+    super(x, y, img);
     // track her own visited cells
     this.visitedAriadne = Array(rows).fill().map(() => Array(cols).fill(false));
     this.visitedAriadne[y][x] = true;
@@ -201,15 +213,14 @@ class Ariadne extends Player {
   }
 
   draw(px, py, cellSize) {
-    fill(200, 100, 150);
-    ellipse(px + cellSize / 2, py + cellSize / 2, cellSize * 0.7);
+    image(this.icon, px, py, cellSize - 4, cellSize - 4);
   }
 }
 
 
 class Minotaur extends Entity {
-  constructor(x, y) {
-    super(x, y);
+  constructor(x, y, img) {
+    super(x, y, img);
     this.dir = 3;
     this.chargeDistance = 3;
     this.noiseCounter = 0; // increases when player regenerates cells nearby
@@ -300,8 +311,7 @@ class Minotaur extends Entity {
   }
 
   draw(px, py, cellSize) {
-    fill(255, 0, 0);
-    rect(px + 2, py + 2, cellSize - 4, cellSize - 4);
+    image(this.icon, px, py, cellSize - 4, cellSize - 4);
   }
 }
 
@@ -470,13 +480,13 @@ function regenerateForgottenCell(x, y) {
 
 // --- Setup and drawing (integrated with regenerate) ---
 function setup() {
-  createCanvas(400, 400);
+  createCanvas(600, 600);
   cellSize = width / cols;
   maze = generateMazeWithHilbert(rows, cols);
   visited = Array(rows).fill().map(() => Array(cols).fill(-1));
-  player = new Player(0, 0);
-  minotaur = new Minotaur(floor(cols / 2), floor(rows / 2));
-  ariadne = new Ariadne(cols - 1, rows - 1);
+  player = new Player(0, 0, imgs[0]);
+  minotaur = new Minotaur(floor(cols / 2), floor(rows / 2), imgs[1]);
+  ariadne = new Ariadne(cols - 1, rows - 1, imgs[2]);
   visited[player.y][player.x] = 0;
   noLoop();
   redraw();
@@ -520,11 +530,11 @@ function draw() {
           isRegen = true;
         }
         visited[y][x] = moveCount;
-        fill(255, 255, 192); // visible = white
+        fill(255, 255, 192); // visible = light yellow
       } else if (last !== -1 && moveCount - last <= forgetThreshold) {
         fill(255 - fadeRate * (moveCount - last), 255 - fadeRate * (moveCount - last), 192 - 0.75 * fadeRate * (moveCount - last)); // faded memory
       } else {
-        fill(224); // never seen
+        fill(0); // never seen
       }
 
       noStroke();
