@@ -1,8 +1,8 @@
 # CSE 310 - Sprint Time Log
 
-Name:
+Name: Jalen Anderson
 
-Sprint #:
+Sprint #: 5
 
 ## Instructions
 
